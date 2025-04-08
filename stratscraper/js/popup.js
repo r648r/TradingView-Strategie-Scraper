@@ -113,18 +113,56 @@ function loadAndDisplayData() {
     });
 }
 
-// Fonction pour supprimer les doublons
+// Fonction modifiée pour supprimer les doublons et garder la dernière occurrence de chaque ticker
 function removeDuplicates(data) {
-    const uniqueData = [];
-    const seenKeys = new Set();
+    const tickerMap = new Map(); // Map de ticker -> indice
+    const duplicates = new Set(); // Ensemble des tickers avec doublons
     
-    data.forEach(item => {
-        const key = `${item.ticker}-${item.netProfit}-${item.maxDrawdown}-${item.commissionPaid}`;
-        if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            uniqueData.push(item);
+    // Premier passage : identifier les doublons et mémoriser la dernière occurrence
+    for (let i = 0; i < data.length; i++) {
+        const ticker = data[i].ticker;
+        if (ticker) {  // Vérifier que le ticker existe et n'est pas vide
+            if (tickerMap.has(ticker)) {
+                duplicates.add(ticker);
+                tickerMap.set(ticker, i); // Mettre à jour vers le dernier indice
+            } else {
+                tickerMap.set(ticker, i);
+            }
         }
-    });
+    }
+    
+    // Journaliser les doublons trouvés
+    if (duplicates.size > 0) {
+        console.log(`Doublons trouvés pour les paires: ${Array.from(duplicates).join(', ')}`);
+    }
+    
+    // Second passage : construire le tableau filtré
+    const uniqueData = [];
+    const seenTickers = new Set();
+    
+    for (let i = 0; i < data.length; i++) {
+        const item = data[i];
+        const ticker = item.ticker;
+        
+        if (!ticker) {
+            // Inclure les éléments sans ticker (s'il y en a)
+            uniqueData.push(item);
+            continue;
+        }
+        
+        // Si ce n'est pas la dernière occurrence d'un ticker en double, passer
+        if (duplicates.has(ticker) && tickerMap.get(ticker) !== i) {
+            continue;
+        }
+        
+        // Si on a déjà ajouté ce ticker, passer
+        if (seenTickers.has(ticker)) {
+            continue;
+        }
+        
+        seenTickers.add(ticker);
+        uniqueData.push(item);
+    }
     
     return uniqueData;
 }
@@ -201,28 +239,26 @@ function performQuickScrape() {
                 chrome.storage.local.get(['collectedData'], function(result) {
                     const collectedData = result.collectedData || [];
                     
-                    // Vérifier si cet élément existe déjà (éviter les doublons)
-                    const isDuplicate = collectedData.some(item => 
-                        item.ticker === data.ticker && 
-                        item.netProfit === data.netProfit &&
-                        item.maxDrawdown === data.maxDrawdown &&
-                        item.commissionPaid === data.commissionPaid
-                    );
+                    // Vérifier si ce ticker existe déjà
+                    const existingIndex = collectedData.findIndex(item => item.ticker === data.ticker);
                     
-                    if (!isDuplicate) {
-                        collectedData.push(data);
-                        chrome.storage.local.set({ collectedData: collectedData }, function() {
-                            console.log("Données enregistrées, mise à jour du badge");
-                            chrome.action.setBadgeText({ text: collectedData.length.toString() });
-                            chrome.action.setBadgeBackgroundColor({ color: '#4688F1' });
-                            
-                            // Recharger l'affichage
-                            loadAndDisplayData();
-                        });
-                    } else {
-                        console.log("Entrée dupliquée ignorée");
-                        updateStatus('Donnée ignorée (doublon détecté)');
+                    if (existingIndex !== -1) {
+                        // Remplacer l'entrée existante par la nouvelle
+                        console.log(`Remplacement de l'entrée dupliquée pour la paire: ${data.ticker}`);
+                        collectedData.splice(existingIndex, 1);
                     }
+                    
+                    // Ajouter la nouvelle entrée
+                    collectedData.push(data);
+                    
+                    chrome.storage.local.set({ collectedData: collectedData }, function() {
+                        console.log("Données enregistrées, mise à jour du badge");
+                        chrome.action.setBadgeText({ text: collectedData.length.toString() });
+                        chrome.action.setBadgeBackgroundColor({ color: '#4688F1' });
+                        
+                        // Recharger l'affichage
+                        loadAndDisplayData();
+                    });
                 });
             } else {
                 updateStatus('Erreur: Impossible de récupérer les données');
@@ -287,16 +323,30 @@ function exportToExcel() {
                         // Analyser les données JSON
                         const rawDataArray = JSON.parse(excelData);
                         
-                        // Éliminer les doublons
-                        const seenKeys = new Set();
-                        const dataArray = rawDataArray.filter(data => {
-                            const key = `${data.ticker}-${data.netProfit}-${data.maxDrawdown}-${data.commissionPaid}`;
-                            if (seenKeys.has(key)) {
-                                return false;
+                        // Éliminer les doublons en gardant la dernière occurrence par ticker
+                        const tickerMap = new Map();
+                        for (let i = 0; i < rawDataArray.length; i++) {
+                            const ticker = rawDataArray[i].ticker;
+                            if (ticker) {
+                                tickerMap.set(ticker, i);
                             }
-                            seenKeys.add(key);
-                            return true;
-                        });
+                        }
+                        
+                        const dataArray = [];
+                        const processed = new Set();
+                        
+                        for (let i = 0; i < rawDataArray.length; i++) {
+                            const ticker = rawDataArray[i].ticker;
+                            if (!ticker || processed.has(ticker)) continue;
+                            
+                            // Si c'est la dernière occurrence de ce ticker, l'utiliser
+                            if (tickerMap.get(ticker) === i) {
+                                dataArray.push(rawDataArray[i]);
+                                processed.add(ticker);
+                            }
+                        }
+                        
+                        console.log("Doublons éliminés, données restantes:", dataArray.length);
                         
                         // Formater pour Excel avec tabulations
                         let tsvContent = "Ticker\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";

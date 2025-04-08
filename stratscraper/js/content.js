@@ -73,34 +73,55 @@ function storeScrapedData(data) {
         }
     }
     
-    // Vérifier si cette entrée existe déjà pour éviter les doublons
-    const isDuplicate = dataArray.some(item => 
-        item.ticker === data.ticker && 
-        item.netProfit === data.netProfit &&
-        item.maxDrawdown === data.maxDrawdown &&
-        item.commissionPaid === data.commissionPaid
-    );
+    // MODIFIÉ: Vérifier si cette paire existe déjà et la remplacer
+    const ticker = data.ticker;
+    const existingIndex = dataArray.findIndex(item => item.ticker === ticker);
     
-    // Ajouter les nouvelles données uniquement si ce n'est pas un doublon
-    if (!isDuplicate) {
-        dataArray.push({
-            timestamp: new Date().toISOString(),
-            ...data
-        });
-        
-        // Limiter à 100 entrées pour éviter de remplir le stockage
-        if (dataArray.length > 100) {
-            dataArray = dataArray.slice(-100);
+    if (existingIndex !== -1) {
+        // Supprimer l'ancienne entrée
+        console.log(`Remplacement de données pour la paire: ${ticker}`);
+        dataArray.splice(existingIndex, 1);
+    }
+    
+    // Ajouter les nouvelles données
+    dataArray.push({
+        timestamp: new Date().toISOString(),
+        ...data
+    });
+    
+    // Limiter à 100 entrées pour éviter de remplir le stockage
+    if (dataArray.length > 100) {
+        dataArray = dataArray.slice(-100);
+    }
+    
+    // Sauvegarder les données
+    localStorage.setItem('tradingViewData', JSON.stringify(dataArray));
+    
+    // Créer également une version au format TSV pour Excel avec tabulations au lieu de virgules
+    // MODIFIÉ: S'assurer qu'il n'y a pas de doublons dans le TSV
+    let tsvData = "Ticker\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";
+    
+    // Map pour stocker uniquement la dernière occurrence de chaque ticker
+    const tickerMap = new Map();
+    for (let i = 0; i < dataArray.length; i++) {
+        const ticker = dataArray[i].ticker;
+        if (ticker) {
+            tickerMap.set(ticker, i);
         }
+    }
+    
+    // Construire le TSV avec les données uniques
+    const processedTickers = new Set();
+    for (let i = 0; i < dataArray.length; i++) {
+        const entry = dataArray[i];
+        const ticker = entry.ticker;
         
-        // Sauvegarder les données
-        localStorage.setItem('tradingViewData', JSON.stringify(dataArray));
+        if (!ticker || processedTickers.has(ticker)) continue;
         
-        // Créer également une version au format TSV pour Excel avec tabulations au lieu de virgules
-        let tsvData = "Ticker\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";
-        dataArray.forEach(entry => {
+        // Si c'est la dernière occurrence de ce ticker, l'utiliser
+        if (tickerMap.get(ticker) === i) {
             // Formater les valeurs en supprimant les signes + et les virgules
-            const ticker = entry.ticker || 'N/A';
+            const formattedTicker = ticker || 'N/A';
             const maxDrawdown = formatValueForExcel(entry.maxDrawdown || 'N/A');
             const netProfit = formatValueForExcel(entry.netProfit || 'N/A');
             const buyHoldReturn = formatValueForExcel(entry.buyHoldReturn || 'N/A');
@@ -109,16 +130,14 @@ function storeScrapedData(data) {
             const maxEquityRunUp = formatValueForExcel(entry.maxEquityRunUp || 'N/A');
             const commissionPaid = formatValueForExcel(entry.commissionPaid || 'N/A');
             
-            tsvData += `${ticker}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
-        });
-        
-        localStorage.setItem('tradingViewDataCSV', tsvData);
-        console.log("Données stockées dans localStorage et format TSV prêt");
-        return true; // Indique que les données ont été enregistrées
-    } else {
-        console.log("Doublon détecté, donnée ignorée");
-        return false; // Indique que les données n'ont pas été enregistrées (doublon)
+            tsvData += `${formattedTicker}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
+            processedTickers.add(ticker);
+        }
     }
+    
+    localStorage.setItem('tradingViewDataCSV', tsvData);
+    console.log("Données stockées dans localStorage et format TSV prêt");
+    return true; // Indique que les données ont été enregistrées
 }
 
 function collectData() {
