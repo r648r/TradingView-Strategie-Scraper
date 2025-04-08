@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TradingView Data Collector</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/popup.css">
+  <style>
+    /* Style de secours au cas où le fichier CSS externe ne se charge pas */
+    body {
+      width: 360px;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .header {
+      background-color: #2e3440;
+      color: white;
+      padding: 14px 20px;
+      text-align: center;
+    }
+    .content {
+      padding: 15px;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      background-color: #f0f0f0;
+      border-left: 4px solid #2962ff;
+      border-radius: 4px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border: none;
+      border-radius: 4px;
+      background-color: #2962ff;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-excel {
+      background-color: #4CAF50;
+      color: white;
+    }
+    .btn-json {
+      background-color: #FF9800; /* Orange */
+      color: white;
+    }
+    .btn-danger {
+      background-color: #f44336; /* Rouge */
+      color: white;
+    }
+    /* Zone d'affichage des données */
+    .data-display {
+      margin-top: 15px;
+      max-height: 250px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      background-color: #f9f9f9;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .data-table th {
+      background-color: #f0f0f0;
+      padding: 5px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    .data-table td {
+      padding: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .data-table tr:hover {
+      background-color: #f5f5f5;
+    }
+    .no-data {
+      text-align: center;
+      color: #666;
+      font-style: italic;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>TradingView Data Collector</h1>
+  </div>
+
+  <div class="content">
+    <div id="status" class="status">
+      Prêt à collecter des données
+    </div>
+    
+    <button id="quickScrapeBtn" class="btn">1 Scrape</button>
+    <button id="startBtn" class="btn">Démarrer la collecte</button>
+    <button id="stopBtn" class="btn" disabled>Arrêter la collecte</button>
+    
+    <!-- Boutons modifiés avec nouvelles couleurs -->
+    <button id="exportExcelBtn" class="btn btn-excel">Exporter pour Excel</button>
+    <button id="exportJsonBtn" class="btn btn-json">Télécharger JSON</button>
+    <button id="clearDataBtn" class="btn btn-danger">Effacer les données</button>
+    
+    <!-- Zone d'affichage des données -->
+    <div class="data-display">
+      <h3>Données collectées</h3>
+      <div id="dataContainer">
+        <p class="no-data">Aucune donnée disponible</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/popup.js"></script>
+</body>
+</html>
