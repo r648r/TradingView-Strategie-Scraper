@@ -200,42 +200,64 @@ function formatValueForExcel(value) {
     return value.replace(/\+/g, '').replace(/,/g, '');
 }
 
-// Fonction pour effectuer un scrape rapide
+// Fonction améliorée pour effectuer un scrape rapide
 function performQuickScrape() {
+    console.log("🔍 Bouton One Scrape cliqué - Démarrage du scrape rapide");
+    updateStatus('Récupération des données en cours...');
+    
     // Récupérer l'onglet actif
     chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
         if (!tabs || tabs.length === 0) {
-            console.error("Aucun onglet actif trouvé");
+            console.error("❌ Aucun onglet actif trouvé");
             updateStatus('Erreur: Aucun onglet actif trouvé');
             return;
         }
         
         const tab = tabs[0];
-        console.log("Onglet actif:", tab.url);
+        console.log("📌 Onglet actif:", tab.url);
         
         if (!tab.url.includes('tradingview.com')) {
-            console.warn("L'URL n'est pas TradingView:", tab.url);
+            console.warn("⚠️ L'URL n'est pas TradingView:", tab.url);
             updateStatus('Erreur: Veuillez ouvrir TradingView pour utiliser cette fonction');
             return;
         }
         
+        // Désactiver le bouton pendant le traitement
+        quickScrapeBtn.disabled = true;
+        quickScrapeBtn.textContent = "Récupération...";
+        
         // Envoyer la demande de scrape rapide
+        console.log("📩 Envoi de la demande performQuickScrape au background script");
+        
         chrome.runtime.sendMessage({ action: 'performQuickScrape' }, function(response) {
+            // Réactiver le bouton quoi qu'il arrive
+            quickScrapeBtn.disabled = false;
+            quickScrapeBtn.textContent = "1 Scrape";
+            
             if (chrome.runtime.lastError) {
-                console.error("Erreur lors de la communication:", chrome.runtime.lastError);
+                console.error("❌ Erreur lors de la communication:", chrome.runtime.lastError);
                 updateStatus('Erreur: ' + chrome.runtime.lastError.message);
                 return;
             }
             
-            console.log("Réponse reçue pour quickScrape:", response);
+            console.log("📩 Réponse reçue pour quickScrape:", response);
             
             if (response && response.success) {
                 const data = response.data;
+                
+                // Vérifier que les données sont complètes
+                if (!data || !data.ticker) {
+                    console.error("❌ Données reçues incomplètes:", data);
+                    updateStatus('Erreur: Données incomplètes. Veuillez réessayer.');
+                    return;
+                }
                 
                 // Mettre à jour le statut
                 updateStatus('Données récupérées avec succès!');
                 
                 // Enregistrer dans le stockage
+                console.log("💾 Enregistrement des données dans le stockage");
+                
                 chrome.storage.local.get(['collectedData'], function(result) {
                     const collectedData = result.collectedData || [];
                     
@@ -244,7 +266,7 @@ function performQuickScrape() {
                     
                     if (existingIndex !== -1) {
                         // Remplacer l'entrée existante par la nouvelle
-                        console.log(`Remplacement de l'entrée dupliquée pour la paire: ${data.ticker}`);
+                        console.log(`🔄 Remplacement de l'entrée dupliquée pour la paire: ${data.ticker}`);
                         collectedData.splice(existingIndex, 1);
                     }
                     
@@ -252,8 +274,12 @@ function performQuickScrape() {
                     collectedData.push(data);
                     
                     chrome.storage.local.set({ collectedData: collectedData }, function() {
-                        console.log("Données enregistrées, mise à jour du badge");
-                        chrome.action.setBadgeText({ text: collectedData.length.toString() });
+                        console.log("✅ Données enregistrées, mise à jour du badge");
+                        
+                        // Compter le nombre de tickers uniques
+                        const uniqueCount = countUniqueTickers(collectedData);
+                        
+                        chrome.action.setBadgeText({ text: uniqueCount.toString() });
                         chrome.action.setBadgeBackgroundColor({ color: '#4688F1' });
                         
                         // Recharger l'affichage
@@ -261,7 +287,9 @@ function performQuickScrape() {
                     });
                 });
             } else {
-                updateStatus('Erreur: Impossible de récupérer les données');
+                const errorMsg = response && response.error ? response.error : 'Impossible de récupérer les données';
+                console.error("❌ Erreur de scraping:", errorMsg);
+                updateStatus('Erreur: ' + errorMsg);
             }
         });
     });
@@ -453,13 +481,13 @@ function clearCollectedData() {
                     }
                 }, () => {
                     updateStatus('Données effacées');
-                    chrome.action.setBadgeText({ text: '' });
+                    chrome.action.setBadgeText({ text: '0' }); // Mettre 0 au lieu de vide
                     // Mettre à jour l'affichage
                     dataContainer.innerHTML = '<p class="no-data">Aucune donnée disponible</p>';
                 });
             } else {
                 updateStatus('Données effacées (extension uniquement)');
-                chrome.action.setBadgeText({ text: '' });
+                chrome.action.setBadgeText({ text: '0' }); // Mettre 0 au lieu de vide
                 // Mettre à jour l'affichage
                 dataContainer.innerHTML = '<p class="no-data">Aucune donnée disponible</p>';
             }
@@ -473,4 +501,14 @@ function updateStatus(message) {
     if (statusDiv) {
         statusDiv.textContent = message;
     }
+}
+
+function countUniqueTickers(dataArray) {
+    const uniqueTickers = new Set();
+    dataArray.forEach(item => {
+        if (item.ticker) {
+            uniqueTickers.add(item.ticker);
+        }
+    });
+    return uniqueTickers.size;
 }
