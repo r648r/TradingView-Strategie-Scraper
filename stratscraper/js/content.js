@@ -1,4 +1,4 @@
-// content.js - Version optimisée et efficace
+// content.js - Version optimisée avec logs réduits
 
 console.log("🚀 Content script TradingView Data Collector chargé");
 
@@ -20,7 +20,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
                     if (e.code === 'Space' && !e.repeat) {
                         setTimeout(() => {
                             collectData();
-                        }, 800);
+                        }, 1200);
                     }
                 })
             );
@@ -60,7 +60,7 @@ chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
 
 // Fonction pour collecter les données et les envoyer au background script
 function collectData() {
-    console.log("🔄 Collecte de données en cours...");
+    console.log("🔄 Collecte de données en cours : collectData");
 
     try {
         const data = findTradingViewValues();
@@ -68,9 +68,9 @@ function collectData() {
 
         // Envoyer sans attendre de réponse
         chrome.runtime.sendMessage({ action: 'dataCollected', data: data });
-        console.log("📤 Données envoyées au background script");
+        console.log("📤 Données envoyées au background script : collectData");
     } catch (error) {
-        console.error("❌ Erreur lors de la collecte de données:", error);
+        console.error("❌ collectData : Erreur lors de la collecte de données:", error);
     }
 }
 
@@ -82,12 +82,12 @@ function formatValueForExcel(value) {
     return value.replace(/\+/g, '').replace(/,/g, '');
 }
 
-// Fonction pour stocker les données scrapées dans localStorage avec gestion des doublons
+// Modification de la fonction storeScrapedData pour gérer les combinaisons ticker+timeframe
 function storeScrapedData(data) {
     console.log("💾 Stockage des données dans localStorage...");
 
     if (!data || !data.ticker) {
-        console.warn("⚠️ Données invalides ou sans ticker");
+        console.warn("❌ Données invalides ou sans ticker");
         return false;
     }
 
@@ -106,12 +106,22 @@ function storeScrapedData(data) {
             }
         }
 
-        // Vérifier si cette paire existe déjà et la remplacer
+        // Vérifier si cette combinaison ticker+timeframe existe déjà et la remplacer
         const ticker = data.ticker;
-        const existingIndex = dataArray.findIndex(item => item.ticker === ticker);
+        const timeframe = data.timeframe;
+        let existingIndex = -1;
+        
+        if (ticker && timeframe) {
+            existingIndex = dataArray.findIndex(item => 
+                item.ticker === ticker && item.timeframe === timeframe);
+        } else if (ticker) {
+            // Si pas de timeframe, chercher une entrée sans timeframe pour ce ticker
+            existingIndex = dataArray.findIndex(item => 
+                item.ticker === ticker && !item.timeframe);
+        }
 
         if (existingIndex !== -1) {
-            console.log(`🔄 Remplacement de données pour la paire: ${ticker}`);
+            console.log(`🔄 Remplacement de données pour ${ticker} ${timeframe ? `(${timeframe})` : ''}`);
             dataArray.splice(existingIndex, 1);
         }
 
@@ -131,100 +141,55 @@ function storeScrapedData(data) {
         console.log(`✅ ${dataArray.length} entrées sauvegardées dans localStorage`);
 
         // Créer également une version au format TSV pour Excel avec tabulations au lieu de virgules
-        let tsvData = "Ticker\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";
+        let tsvData = "Ticker\tTimeframe\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";
 
-        // Map pour stocker uniquement la dernière occurrence de chaque ticker
-        const tickerMap = new Map();
+        // Map pour stocker uniquement la dernière occurrence de chaque combinaison ticker+timeframe
+        const combinationMap = new Map();
         for (let i = 0; i < dataArray.length; i++) {
-            const ticker = dataArray[i].ticker;
-            if (ticker) {
-                tickerMap.set(ticker, i);
+            const item = dataArray[i];
+            const itemTicker = item.ticker;
+            const itemTimeframe = item.timeframe;
+            
+            if (itemTicker) {
+                const key = itemTimeframe ? `${itemTicker}-${itemTimeframe}` : itemTicker;
+                combinationMap.set(key, i);
             }
         }
 
         // Construire le TSV avec les données uniques
-        const processedTickers = new Set();
+        const processedCombinations = new Set();
 
         for (let i = 0; i < dataArray.length; i++) {
             const entry = dataArray[i];
-            const ticker = entry.ticker;
+            const entryTicker = entry.ticker;
+            const entryTimeframe = entry.timeframe;
+            
+            if (!entryTicker) continue;
+            
+            const key = entryTimeframe ? `${entryTicker}-${entryTimeframe}` : entryTicker;
+            
+            if (processedCombinations.has(key)) continue;
 
-            if (!ticker || processedTickers.has(ticker)) continue;
-
-            // Si c'est la dernière occurrence de ce ticker, l'utiliser
-            if (tickerMap.get(ticker) === i) {
+            // Si c'est la dernière occurrence de cette combinaison, l'utiliser
+            if (combinationMap.get(key) === i) {
                 // Formater les valeurs en supprimant les signes + et les virgules
-                // Gestion des valeurs avec avertissements console.warn pour les N/A
-                const formattedTicker = ticker || 'N/A';
-                if (!ticker) {
-                    console.warn("⚠️ Valeur manquante pour ticker: N/A");
+                const formattedTicker = entryTicker || 'N/A';
+                if (!entryTicker) {
+                    console.warn("❌ Valeur manquante pour ticker: N/A");
                 }
 
-                // Max Drawdown
-                let maxDrawdown;
-                if (!entry.maxDrawdown || entry.maxDrawdown === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Max Drawdown: N/A");
-                    maxDrawdown = 'N/A';
-                } else {
-                    maxDrawdown = formatValueForExcel(entry.maxDrawdown);
-                }
+                // Timeframe et autres champs
+                const timeframe = entry.timeframe || 'N/A';
+                const maxDrawdown = formatValueForExcel(entry.maxDrawdown || 'N/A');
+                const netProfit = formatValueForExcel(entry.netProfit || 'N/A');
+                const buyHoldReturn = formatValueForExcel(entry.buyHoldReturn || 'N/A');
+                const grossLoss = formatValueForExcel(entry.grossLoss || 'N/A');
+                const grossProfit = formatValueForExcel(entry.grossProfit || 'N/A');
+                const maxEquityRunUp = formatValueForExcel(entry.maxEquityRunUp || 'N/A');
+                const commissionPaid = formatValueForExcel(entry.commissionPaid || 'N/A');
 
-                // Net Profit
-                let netProfit;
-                if (!entry.netProfit || entry.netProfit === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Net Profit: N/A");
-                    netProfit = 'N/A';
-                } else {
-                    netProfit = formatValueForExcel(entry.netProfit);
-                }
-
-                // Buy & Hold Return
-                let buyHoldReturn;
-                if (!entry.buyHoldReturn || entry.buyHoldReturn === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Buy & Hold Return: N/A");
-                    buyHoldReturn = 'N/A';
-                } else {
-                    buyHoldReturn = formatValueForExcel(entry.buyHoldReturn);
-                }
-
-                // Gross Loss
-                let grossLoss;
-                if (!entry.grossLoss || entry.grossLoss === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Gross Loss: N/A");
-                    grossLoss = 'N/A';
-                } else {
-                    grossLoss = formatValueForExcel(entry.grossLoss);
-                }
-
-                // Gross Profit
-                let grossProfit;
-                if (!entry.grossProfit || entry.grossProfit === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Gross Profit: N/A");
-                    grossProfit = 'N/A';
-                } else {
-                    grossProfit = formatValueForExcel(entry.grossProfit);
-                }
-
-                // Max Equity Run-up
-                let maxEquityRunUp;
-                if (!entry.maxEquityRunUp || entry.maxEquityRunUp === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Max Equity Run-up: N/A");
-                    maxEquityRunUp = 'N/A';
-                } else {
-                    maxEquityRunUp = formatValueForExcel(entry.maxEquityRunUp);
-                }
-
-                // Commission Paid
-                let commissionPaid;
-                if (!entry.commissionPaid || entry.commissionPaid === 'N/A') {
-                    console.warn("⚠️ Valeur manquante pour Commission Paid: N/A");
-                    commissionPaid = 'N/A';
-                } else {
-                    commissionPaid = formatValueForExcel(entry.commissionPaid);
-                }
-
-                tsvData += `${formattedTicker}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
-                processedTickers.add(ticker);
+                tsvData += `${formattedTicker}\t${timeframe}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
+                processedCombinations.add(key);
             }
         }
 
@@ -240,11 +205,15 @@ function storeScrapedData(data) {
 
 // Fonction unifiée pour trouver toutes les valeurs
 function findTradingViewValues() {
-    console.log("🔍 Recherche des valeurs TradingView : findTradingViewValues");
+    console.log("🥷 Scraping TradingView function findTradingViewValues");
 
     // Ticker
     let ticker = findTickerValue();
+    // Timeframe
+    let timeframe = extraireTemps();
     // Utiliser la méthode robuste pour trouver chaque valeur (pourcentages)
+
+    console.log("🔍 Recherche des pourcentage : function findTradingViewValues");
     const netProfit = findPercentValueByLabel("Net profit");
     const grossProfit = findPercentValueByLabel("Gross profit");
     const grossLoss = findPercentValueByLabel("Gross loss");
@@ -257,6 +226,7 @@ function findTradingViewValues() {
 
     const result = {
         ticker: ticker,
+        timeframe: timeframe,
         netProfit: netProfit,
         grossProfit: grossProfit,
         grossLoss: grossLoss,
@@ -268,22 +238,110 @@ function findTradingViewValues() {
     return result;
 }
 
+/**
+ * Extracteur de temps avec logs réduits qui capture les durées
+ * incluant minutes, heures, jours, semaines et mois
+ */
+function extraireTemps() {
+    console.log("🔍 Recherche du temps : function extraireTemps");
+    
+    // Variable pour stocker le timeframe trouvé
+    let timeframeFound = "N/A";
+    let activeButtons = [];
+    
+    // Sélectionner les boutons avec tooltip
+    const boutonsAvecTooltip = document.querySelectorAll('button[data-tooltip]');
+    
+    // Parcourir les boutons sans logs excessifs
+    boutonsAvecTooltip.forEach(bouton => {
+        const tooltip = bouton.getAttribute('data-tooltip');
+        
+        // Exclure les tooltips qui contiennent "intervals"
+        if (tooltip.includes("intervals")) {
+            return;
+        }
+        
+        // Extraire le nombre du tooltip (par exemple "2" de "2 weeks")
+        let nombre = 0;
+        const matchNombre = tooltip.match(/^(\d+)\s*/);
+        if (matchNombre) {
+            nombre = parseInt(matchNombre[1], 10);
+        }
+        
+        // Ne garder que les tooltips qui sont des durées simples (singulier ou pluriel)
+        if (tooltip.match(/^\d+\s*(minute|minutes|hour|hours|day|days|week|weeks|month|months)$/i)) {
+            let minutes = 0;
+            let unite = "";
+            
+            // Extraire les minutes
+            if (tooltip.match(/(\d+)\s*minute(s)?/i)) {
+                minutes = parseInt(tooltip.match(/(\d+)\s*minute(s)?/i)[1], 10);
+                unite = "M";
+            }
+            // Extraire les heures et convertir en minutes
+            else if (tooltip.match(/(\d+)\s*hour(s)?/i)) {
+                minutes = parseInt(tooltip.match(/(\d+)\s*hour(s)?/i)[1], 10) * 60;
+                unite = "H";
+            }
+            // Extraire les jours et convertir en minutes
+            else if (tooltip.match(/(\d+)\s*day(s)?/i)) {
+                minutes = parseInt(tooltip.match(/(\d+)\s*day(s)?/i)[1], 10) * 24 * 60;
+                unite = "D";
+            }
+            // Extraire les semaines et convertir en minutes
+            else if (tooltip.match(/(\d+)\s*week(s)?/i)) {
+                minutes = parseInt(tooltip.match(/(\d+)\s*week(s)?/i)[1], 10) * 7 * 24 * 60;
+                unite = "W";
+            }
+            // Extraire les mois et convertir en minutes (approximativement 30 jours par mois)
+            else if (tooltip.match(/(\d+)\s*month(s)?/i)) {
+                minutes = parseInt(tooltip.match(/(\d+)\s*month(s)?/i)[1], 10) * 30 * 24 * 60;
+                unite = "M";
+            }
+            
+            // Si on a trouvé une valeur valide
+            if (minutes > 0) {
+                // Construire le texte attendu (par exemple "1H", "2D", etc.)
+                const texteAttendu = `${nombre}${unite}`;
+                
+                // Vérifier si le bouton est actif (a la classe "active")
+                if (bouton.classList.contains('active') || 
+                    bouton.getAttribute('aria-pressed') === 'true' || 
+                    getComputedStyle(bouton).backgroundColor !== 'transparent') {
+                    activeButtons.push(texteAttendu);
+                    timeframeFound = texteAttendu;
+                }
+            }
+        }
+    });
+    
+    // Log unique pour tous les boutons actifs trouvés
+    if (activeButtons.length > 0) {
+        console.log(`✅ Timeframe actif trouvé: ${activeButtons[0]}${activeButtons.length > 1 ? ` (et ${activeButtons.length - 1} autres)` : ''}`);
+    } else {
+        console.log("❌ Aucun timeframe actif trouvé");
+    }
+    
+    return timeframeFound;
+}
+
 // Fonction optimisée pour trouver le ticker
 function findTickerValue() {
-    console.log("🔍 Recherche du ticker...");
+    console.log("🔍 Recherche du ticker : function findTickerValue");
 
     try {
         // Méthode principale - sélecteur standard (fonctionne presque toujours)
         const element = document.querySelector("#header-toolbar-symbol-search > div");
         if (element) {
             const value = element.textContent.trim();
-            console.log(`✅  Ticker trouvé avec sélecteur standard: ${value}`);
+            console.log(`✅ Ticker trouvé: ${value}`);
             return value;
         }
 
         // Méthodes alternatives en cas d'échec
         const titleMatch = document.title.match(/(\w+)(?:\:|\/)/);
         if (titleMatch && titleMatch[1]) {
+            console.log(`✅ Ticker trouvé via titre: ${titleMatch[1]}`);
             return titleMatch[1];
         }
 
@@ -295,9 +353,13 @@ function findTickerValue() {
 
         for (const el of possibleSelectors) {
             if (el && (el.textContent.match(/[A-Z]+\/[A-Z]+/) || el.textContent.match(/[A-Z]+USD/))) {
-                return el.textContent.trim().split(' ')[0];
+                const ticker = el.textContent.trim().split(' ')[0];
+                console.log(`✅ Ticker trouvé via sélecteur alternatif: ${ticker}`);
+                return ticker;
             }
         }
+        
+        console.warn("❌ Aucun ticker trouvé");
     } catch (e) {
         console.error("❌ Erreur lors de la récupération du ticker:", e);
     }
@@ -307,10 +369,8 @@ function findTickerValue() {
 
 // Fonction optimisée pour trouver le pourcentage par son libellé
 function findPercentValueByLabel(labelText) {
-    console.log(`🔍 Recherche du pourcentage pour "${labelText}"`);
-
     try {
-        // Stratégie principale - recherche dans les lignes de tableau (fonctionne presque toujours)
+        // Stratégie principale - recherche dans les lignes de tableau
         const rows = document.querySelectorAll('tr');
         for (const row of rows) {
             // Vérifier si cette ligne contient le libellé
@@ -324,10 +384,8 @@ function findPercentValueByLabel(labelText) {
                 if (percentElement) {
                     let value = percentElement.textContent.trim();
                     value = value.replace('−', '-');
-                    console.log(`✅ ${labelText}: "${value}" (stratégie 1)`);
+                    console.log(`✅ ${labelText}: "${value}"`);
                     return value;
-                } else {
-                    console.warn(`!!!!! Élément pourcentage non trouvé pour ${labelText} dans la ligne !!!!`);
                 }
             }
         }
@@ -347,6 +405,7 @@ function findPercentValueByLabel(labelText) {
                 if (percentElement) {
                     let value = percentElement.textContent.trim();
                     value = value.replace('−', '-');
+                    console.log(`✅ ${labelText}: "${value}" (méthode alt)`);
                     return value;
                 }
 
@@ -355,11 +414,18 @@ function findPercentValueByLabel(labelText) {
         }
 
         // Si aucun pourcentage n'a été trouvé, chercher une valeur standard
-        return findValueByLabel(labelText);
+        const standardValue = findValueByLabel(labelText);
+        if (standardValue !== "N/A") {
+            console.log(`✅ ${labelText}: "${standardValue}" (valeur standard)`);
+            return standardValue;
+        }
+        
+        console.warn(`❌ Valeur non trouvée pour: ${labelText}`);
     } catch (e) {
-        console.warn(`⚠️ Erreur recherche pour ${labelText}:`, e);
-        return "N/A";
+        console.warn(`❌ Erreur recherche pour ${labelText}:`, e);
     }
+
+    return "N/A";
 }
 
 // Fonction pour trouver une valeur par son libellé (pour les valeurs sans pourcentage)
@@ -404,7 +470,7 @@ function findValueByLabel(labelText) {
             }
         }
     } catch (e) {
-        console.warn(`⚠️ Erreur recherche valeur pour ${labelText}:`, e);
+        console.warn(`❌ Erreur recherche valeur pour ${labelText}:`, e);
     }
 
     return "N/A";
@@ -412,76 +478,53 @@ function findValueByLabel(labelText) {
 
 // Fonction spécifique pour trouver la Commission paid
 function findCommissionPaid() {
-    console.log("🔍 Recherche spécifique de Commission paid : findCommissionPaid");
-
     try {
-        // Stratégie principale - recherche dans les éléments titre
-        console.log("🔄 Essai stratégie 1: recherche dans les éléments titre");
-
+        // Recherche avec méthode directe et optimisée
+        const commissionValue = findValueByLabel("Commission paid");
+        if (commissionValue !== "N/A") {
+            console.log(`✅ Commission paid: "${commissionValue}"`);
+            return commissionValue;
+        }
+        
+        // Stratégie alternative si nécessaire
         const titleSelectors = [
             'div.title-NcOKy65p',
             'div.apply-overflow-tooltip'
         ];
 
-        let titleElements = [];
         for (const selector of titleSelectors) {
             const elements = document.querySelectorAll(selector);
-            console.log(`📌 ${elements.length} éléments trouvés avec le sélecteur ${selector}`);
-            titleElements = titleElements.concat(Array.from(elements));
-        }
-
-        console.log(`📌 Total de ${titleElements.length} éléments titre à vérifier`);
-
-        for (const titleElement of titleElements) {
-            if (titleElement.textContent && titleElement.textContent.trim() === "Commission paid") {
-                console.log(`📌 Texte "Commission paid" trouvé dans un élément titre`);
-
-                // Remonter jusqu'à la cellule td
-                let currentElement = titleElement;
-                let level = 0;
-
-                while (currentElement && currentElement.tagName !== 'TR' && level < 5) {
-                    console.log(`📌 Remontée niveau ${level}: ${currentElement.tagName}`);
-                    currentElement = currentElement.parentElement;
-                    level++;
-                }
-
-                if (currentElement && currentElement.tagName === 'TR') {
-                    console.log(`📌 Ligne de tableau (TR) trouvée au niveau ${level}`);
-
-                    // Chercher la valeur dans la cellule suivante
-                    const valueElementSpecific = currentElement.querySelector('div.value-SLJfw5le');
-                    if (valueElementSpecific) {
-                        const value = valueElementSpecific.textContent.trim();
-                        console.log(`✅ Commission trouvée (sélecteur spécifique): "${value}"`);
-                        return value;
-                    }
-
-                    const valueElementGeneric = currentElement.querySelector('div[class*="value-"]');
-                    if (valueElementGeneric) {
-                        const value = valueElementGeneric.textContent.trim();
-                        return value;
+            
+            for (const element of elements) {
+                if (element.textContent && element.textContent.trim() === "Commission paid") {
+                    let row = element.closest('tr');
+                    if (row) {
+                        const valueElement = row.querySelector('div[class*="value-"]');
+                        if (valueElement) {
+                            const value = valueElement.textContent.trim();
+                            console.log(`✅ Commission paid: "${value}" (méthode alt)`);
+                            return value;
+                        }
                     }
                 }
             }
         }
-
-        // Stratégie de secours - méthode générique
-        return findValueByLabel("Commission paid");
+        
+        console.warn("❌ Commission paid non trouvée");
     } catch (e) {
         console.warn("❌ Erreur lors de la recherche de Commission paid:", e);
-        return "N/A";
     }
+
+    return "N/A";
 }
 
 // Version spécifique pour le scrape rapide
 function quickScrapeSpecificValues() {
-    console.log("🔄 Exécution de quickScrapeSpecificValues");
+    console.log("🔄 Exécution du scrape rapide");
 
     try {
         // Utiliser les mêmes fonctions que pour la collecte normale
         const data = findTradingViewValues();
-        console.log("✅ Données récupérées par scrape rapide:", data);
         return data;
     } catch (error) {
         console.error("❌ Erreur dans quickScrapeSpecificValues:", error);

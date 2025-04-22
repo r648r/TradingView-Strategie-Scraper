@@ -113,36 +113,41 @@ function loadAndDisplayData() {
     });
 }
 
-// Fonction modifiée pour supprimer les doublons et garder la dernière occurrence de chaque ticker
+// Fonction modifiée pour supprimer les doublons et garder la dernière occurrence de chaque combinaison ticker+timeframe
 function removeDuplicates(data) {
-    const tickerMap = new Map(); // Map de ticker -> indice
-    const duplicates = new Set(); // Ensemble des tickers avec doublons
+    const combinationMap = new Map(); // Map de "ticker-timeframe" -> indice
+    const duplicates = new Set(); // Ensemble des combinaisons avec doublons
     
     // Premier passage : identifier les doublons et mémoriser la dernière occurrence
     for (let i = 0; i < data.length; i++) {
         const ticker = data[i].ticker;
+        const timeframe = data[i].timeframe;
+        
         if (ticker) {  // Vérifier que le ticker existe et n'est pas vide
-            if (tickerMap.has(ticker)) {
-                duplicates.add(ticker);
-                tickerMap.set(ticker, i); // Mettre à jour vers le dernier indice
+            const key = timeframe ? `${ticker}-${timeframe}` : ticker;
+            
+            if (combinationMap.has(key)) {
+                duplicates.add(key);
+                combinationMap.set(key, i); // Mettre à jour vers le dernier indice
             } else {
-                tickerMap.set(ticker, i);
+                combinationMap.set(key, i);
             }
         }
     }
     
     // Journaliser les doublons trouvés
     if (duplicates.size > 0) {
-        console.log(`Doublons trouvés pour les paires: ${Array.from(duplicates).join(', ')}`);
+        console.log(`Doublons trouvés pour les combinaisons: ${Array.from(duplicates).join(', ')}`);
     }
     
     // Second passage : construire le tableau filtré
     const uniqueData = [];
-    const seenTickers = new Set();
+    const seenCombinations = new Set();
     
     for (let i = 0; i < data.length; i++) {
         const item = data[i];
         const ticker = item.ticker;
+        const timeframe = item.timeframe;
         
         if (!ticker) {
             // Inclure les éléments sans ticker (s'il y en a)
@@ -150,17 +155,19 @@ function removeDuplicates(data) {
             continue;
         }
         
-        // Si ce n'est pas la dernière occurrence d'un ticker en double, passer
-        if (duplicates.has(ticker) && tickerMap.get(ticker) !== i) {
+        const key = timeframe ? `${ticker}-${timeframe}` : ticker;
+        
+        // Si ce n'est pas la dernière occurrence d'une combinaison en double, passer
+        if (duplicates.has(key) && combinationMap.get(key) !== i) {
             continue;
         }
         
-        // Si on a déjà ajouté ce ticker, passer
-        if (seenTickers.has(ticker)) {
+        // Si on a déjà ajouté cette combinaison, passer
+        if (seenCombinations.has(key)) {
             continue;
         }
         
-        seenTickers.add(ticker);
+        seenCombinations.add(key);
         uniqueData.push(item);
     }
     
@@ -177,11 +184,12 @@ function displayDataInPopup(data) {
     }
     
     let tableHtml = '<table class="data-table">';
-    tableHtml += '<tr><th>Ticker</th><th>Net Profit</th><th>Max DD</th><th>Commission</th></tr>';
+    tableHtml += '<tr><th>Ticker</th><th>TF</th><th>Net Profit</th><th>Max DD</th><th>Commission</th></tr>';
     
     data.forEach(item => {
         tableHtml += `<tr>
             <td>${item.ticker || 'N/A'}</td>
+            <td>${item.timeframe || 'N/A'}</td>
             <td>${item.netProfit || 'N/A'}</td>
             <td>${item.maxDrawdown || 'N/A'}</td>
             <td>${item.commissionPaid || 'N/A'}</td>
@@ -217,7 +225,7 @@ function performQuickScrape() {
         console.log("📌 Onglet actif:", tab.url);
         
         if (!tab.url.includes('tradingview.com')) {
-            console.warn("⚠️ L'URL n'est pas TradingView:", tab.url);
+            console.warn("❌ L'URL n'est pas TradingView:", tab.url);
             updateStatus('Erreur: Veuillez ouvrir TradingView pour utiliser cette fonction');
             return;
         }
@@ -261,12 +269,23 @@ function performQuickScrape() {
                 chrome.storage.local.get(['collectedData'], function(result) {
                     const collectedData = result.collectedData || [];
                     
-                    // Vérifier si ce ticker existe déjà
-                    const existingIndex = collectedData.findIndex(item => item.ticker === data.ticker);
+                    // Vérifier si cette combinaison ticker+timeframe existe déjà
+                    const ticker = data.ticker;
+                    const timeframe = data.timeframe;
+                    let existingIndex = -1;
+                    
+                    if (ticker && timeframe) {
+                        existingIndex = collectedData.findIndex(item => 
+                            item.ticker === ticker && item.timeframe === timeframe);
+                    } else if (ticker) {
+                        // Fallback pour les données sans timeframe
+                        existingIndex = collectedData.findIndex(item => 
+                            item.ticker === ticker && !item.timeframe);
+                    }
                     
                     if (existingIndex !== -1) {
                         // Remplacer l'entrée existante par la nouvelle
-                        console.log(`🔄 Remplacement de l'entrée dupliquée pour la paire: ${data.ticker}`);
+                        console.log(`🔄 Remplacement de l'entrée dupliquée pour ${ticker} ${timeframe ? `(${timeframe})` : ''}`);
                         collectedData.splice(existingIndex, 1);
                     }
                     
@@ -276,10 +295,16 @@ function performQuickScrape() {
                     chrome.storage.local.set({ collectedData: collectedData }, function() {
                         console.log("✅ Données enregistrées, mise à jour du badge");
                         
-                        // Compter le nombre de tickers uniques
-                        const uniqueCount = countUniqueTickers(collectedData);
+                        // Compter le nombre de combinaisons uniques
+                        const uniqueCombinations = new Set();
+                        collectedData.forEach(item => {
+                            if (item.ticker) {
+                                const key = item.timeframe ? `${item.ticker}-${item.timeframe}` : item.ticker;
+                                uniqueCombinations.add(key);
+                            }
+                        });
                         
-                        chrome.action.setBadgeText({ text: uniqueCount.toString() });
+                        chrome.action.setBadgeText({ text: uniqueCombinations.size.toString() });
                         chrome.action.setBadgeBackgroundColor({ color: '#4688F1' });
                         
                         // Recharger l'affichage
@@ -351,12 +376,14 @@ function exportToExcel() {
                         // Analyser les données JSON
                         const rawDataArray = JSON.parse(excelData);
                         
-                        // Éliminer les doublons en gardant la dernière occurrence par ticker
-                        const tickerMap = new Map();
+                        // Éliminer les doublons en gardant la dernière occurrence par combinaison ticker+timeframe
+                        const combinationMap = new Map();
                         for (let i = 0; i < rawDataArray.length; i++) {
                             const ticker = rawDataArray[i].ticker;
+                            const timeframe = rawDataArray[i].timeframe;
                             if (ticker) {
-                                tickerMap.set(ticker, i);
+                                const key = timeframe ? `${ticker}-${timeframe}` : ticker;
+                                combinationMap.set(key, i);
                             }
                         }
                         
@@ -365,23 +392,28 @@ function exportToExcel() {
                         
                         for (let i = 0; i < rawDataArray.length; i++) {
                             const ticker = rawDataArray[i].ticker;
-                            if (!ticker || processed.has(ticker)) continue;
+                            const timeframe = rawDataArray[i].timeframe;
+                            if (!ticker) continue;
                             
-                            // Si c'est la dernière occurrence de ce ticker, l'utiliser
-                            if (tickerMap.get(ticker) === i) {
+                            const key = timeframe ? `${ticker}-${timeframe}` : ticker;
+                            if (processed.has(key)) continue;
+                            
+                            // Si c'est la dernière occurrence de cette combinaison, l'utiliser
+                            if (combinationMap.get(key) === i) {
                                 dataArray.push(rawDataArray[i]);
-                                processed.add(ticker);
+                                processed.add(key);
                             }
                         }
                         
                         console.log("Doublons éliminés, données restantes:", dataArray.length);
                         
                         // Formater pour Excel avec tabulations
-                        let tsvContent = "Ticker\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";
+                        let tsvContent = "Ticker\tTimeframe\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n";
                         
                         dataArray.forEach(data => {
                             // Supprimer les signes + et les virgules dans les valeurs numériques
                             const ticker = data.ticker || 'N/A';
+                            const timeframe = data.timeframe || 'N/A';
                             const maxDrawdown = data.maxDrawdown ? data.maxDrawdown.replace(/\+/g, '').replace(/,/g, '') : 'N/A';
                             const netProfit = data.netProfit ? data.netProfit.replace(/\+/g, '').replace(/,/g, '') : 'N/A';
                             const buyHoldReturn = data.buyHoldReturn ? data.buyHoldReturn.replace(/\+/g, '').replace(/,/g, '') : 'N/A';
@@ -390,7 +422,7 @@ function exportToExcel() {
                             const maxEquityRunUp = data.maxEquityRunUp ? data.maxEquityRunUp.replace(/\+/g, '').replace(/,/g, '') : 'N/A';
                             const commissionPaid = data.commissionPaid ? data.commissionPaid.replace(/\+/g, '').replace(/,/g, '') : 'N/A';
                             
-                            tsvContent += `${ticker}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
+                            tsvContent += `${ticker}\t${timeframe}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
                         });
                         
                         return tsvContent;
@@ -438,11 +470,12 @@ function exportExcelFromStorage() {
         const uniqueData = removeDuplicates(collectedData);
         
         // Créer une chaîne tabulée (TSV)
-        let tsvContent = 'Ticker\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n';
+        let tsvContent = 'Ticker\tTimeframe\tMax Drawdown\tNet Profit\tBuy & Hold Return\tGross Loss\tGross Profit\tMax Equity Run-up\tCommission Paid\n';
         
         uniqueData.forEach(data => {
             // Formater les valeurs en supprimant les signes + et les virgules
             const ticker = data.ticker || 'N/A';
+            const timeframe = data.timeframe || 'N/A';
             const maxDrawdown = formatValueForExcel(data.maxDrawdown || 'N/A');
             const netProfit = formatValueForExcel(data.netProfit || 'N/A');
             const buyHoldReturn = formatValueForExcel(data.buyHoldReturn || 'N/A');
@@ -451,7 +484,7 @@ function exportExcelFromStorage() {
             const maxEquityRunUp = formatValueForExcel(data.maxEquityRunUp || 'N/A');
             const commissionPaid = formatValueForExcel(data.commissionPaid || 'N/A');
             
-            tsvContent += `${ticker}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
+            tsvContent += `${ticker}\t${timeframe}\t${maxDrawdown}\t${netProfit}\t${buyHoldReturn}\t${grossLoss}\t${grossProfit}\t${maxEquityRunUp}\t${commissionPaid}\n`;
         });
         
         // Copier dans le presse-papiers
