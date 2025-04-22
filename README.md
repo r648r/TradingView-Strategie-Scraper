@@ -205,3 +205,43 @@ echo '~m~50~m~{"m":"protocol_error","p":["error_details"]}' | websocat --header=
 ---
 
 This README covers all known WebSocket API calls from the `TradingView-API` repository. For additional details or updates, refer to the project's source code or documentation.
+
+
+### 1. Authentification via Token
+
+```javascript
+// Dans la construction de l'URL de connexion
+e.searchParams.append("date", window.BUILD_TIME || "");
+
+// Gestion du token d'authentification
+class c {
+    constructor() {
+        this.invalidated = new o.Delegate;
+        window.loginStateChange.subscribe(this, (e => {
+            e || (this._set(window.user.auth_token), this.invalidated.fire());
+        }));
+        this._set(window.user.auth_token);
+    }
+    
+    get(e) {
+        if (!window.is_authenticated) return Promise.resolve("");
+        
+        if (!e && performance.now() < this._cache.monoValidThru && 
+            Date.now() < this._cache.wallValidThru) {
+            return Promise.resolve(this._cache.token);
+        }
+        
+        return this._fetch(Boolean(e), 0);
+    }
+}
+```
+
+### 2. Sécurité des Messages
+
+- Utilisation du protocole WSS (WebSocket Secure)
+- Validation des formats de message
+- Gestion des timeouts pour éviter les connexions zombies
+
+---
+
+Cette documentation présente une analyse complète et détaillée du système de communications WebSocket de TradingView, en expliquant son architecture technique, son protocole de messagerie propriétaire, les mécanismes de fiabilité et de sécurité, ainsi que des exemples concrets de communications client-serveur.
